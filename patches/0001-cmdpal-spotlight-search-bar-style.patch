@@ -1,0 +1,799 @@
+From b929911988ceebd35305c786a135d76ac3eca346 Mon Sep 17 00:00:00 2001
+From: SpotPalette <spotpalette@users.noreply.github.com>
+Date: Sat, 7 Nov 2026 15:00:18 +0000
+Subject: [PATCH] CmdPal: Spotlight-style search bar customization
+
+Builds on Command Palette's compact mode (search box only, expands while
+typing) and adds a 'Spotlight search bar style' group to Settings >
+Appearance: visible result rows, search text size, search bar height,
+corner roundness, and toggles for the app icon, section headers and the
+bottom command bar. The official full palette is unaffected.
+---
+ .../SettingsModel.cs                          |  63 ++++++++++
+ .../SettingsViewModel.cs                      | 119 ++++++++++++++++++
+ .../Controls/SearchBar.xaml                   |   1 +
+ .../Controls/SearchBar.xaml.cs                |  13 ++
+ .../ListItemContainerStyleSelector.cs         |  16 ++-
+ .../ExtViews/ListItemsView.xaml               |  12 ++
+ .../Microsoft.CmdPal.UI/MainWindow.xaml.cs    |   9 ++
+ .../Microsoft.CmdPal.UI/Pages/ShellPage.xaml  |  18 ++-
+ .../Pages/ShellPage.xaml.cs                   |  75 +++++++++++
+ .../Settings/AppearancePage.xaml              |  64 ++++++++++
+ .../Settings/AppearancePage.xaml.cs           |   5 +
+ .../Strings/en-us/Resources.resw              |  59 ++++++++-
+ .../SettingsServiceTests.cs                   |  62 +++++++++
+ 13 files changed, 507 insertions(+), 9 deletions(-)
+
+diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI.ViewModels/SettingsModel.cs b/src/modules/cmdpal/Microsoft.CmdPal.UI.ViewModels/SettingsModel.cs
+index 5798c9c..ea7bfc8 100644
+--- a/src/modules/cmdpal/Microsoft.CmdPal.UI.ViewModels/SettingsModel.cs
++++ b/src/modules/cmdpal/Microsoft.CmdPal.UI.ViewModels/SettingsModel.cs
+@@ -136,6 +136,69 @@ public record SettingsModel
+     // when compact mode is off.
+     public int CompactCenterHeightPercentage { get; set; } = DefaultCompactCenterHeightPercentage;
+ 
++    ///////////////////////////////////////////////////////////////////////////
++    // SpotPalette: Spotlight-style customization. These only take effect while
++    // CompactMode is on (the "search bar only" design); the official full palette
++    // ignores them entirely.
++    internal const int MinSpotlightMaxVisibleResults = 0; // 0 = fill the available space
++    internal const int MaxSpotlightMaxVisibleResults = 20;
++    internal const int DefaultSpotlightMaxVisibleResults = 8;
++    internal const int MinSpotlightSearchFontSize = 12;
++    internal const int MaxSpotlightSearchFontSize = 36;
++    internal const int DefaultSpotlightSearchFontSize = 22;
++    internal const int MinSpotlightCornerRadius = 0;
++    internal const int MaxSpotlightCornerRadius = 32;
++    internal const int DefaultSpotlightCornerRadius = 14;
++    internal const int MinSpotlightSearchBarPadding = 4;
++    internal const int MaxSpotlightSearchBarPadding = 32;
++    internal const int DefaultSpotlightSearchBarPadding = 14;
++
++    private int _spotlightMaxVisibleResults = DefaultSpotlightMaxVisibleResults;
++
++    /// <summary>
++    /// Gets the maximum number of result rows shown when the compact search bar expands.
++    /// 0 lets the results grow until the bottom of the screen (upstream behavior).
++    /// </summary>
++    public int SpotlightMaxVisibleResults
++    {
++        get => _spotlightMaxVisibleResults;
++        init => _spotlightMaxVisibleResults = Math.Clamp(value, MinSpotlightMaxVisibleResults, MaxSpotlightMaxVisibleResults);
++    }
++
++    private int _spotlightSearchFontSize = DefaultSpotlightSearchFontSize;
++
++    public int SpotlightSearchFontSize
++    {
++        get => _spotlightSearchFontSize;
++        init => _spotlightSearchFontSize = Math.Clamp(value, MinSpotlightSearchFontSize, MaxSpotlightSearchFontSize);
++    }
++
++    private int _spotlightSearchBarPadding = DefaultSpotlightSearchBarPadding;
++
++    /// <summary>
++    /// Gets the vertical padding (DIPs, top and bottom) around the search box. Together with
++    /// <see cref="SpotlightSearchFontSize"/> this controls how tall the search bar looks.
++    /// </summary>
++    public int SpotlightSearchBarPadding
++    {
++        get => _spotlightSearchBarPadding;
++        init => _spotlightSearchBarPadding = Math.Clamp(value, MinSpotlightSearchBarPadding, MaxSpotlightSearchBarPadding);
++    }
++
++    private int _spotlightCornerRadius = DefaultSpotlightCornerRadius;
++
++    public int SpotlightCornerRadius
++    {
++        get => _spotlightCornerRadius;
++        init => _spotlightCornerRadius = Math.Clamp(value, MinSpotlightCornerRadius, MaxSpotlightCornerRadius);
++    }
++
++    public bool SpotlightHideCommandBar { get; init; } = true;
++
++    public bool SpotlightHideLogo { get; init; }
++
++    public bool SpotlightHideSectionHeaders { get; init; }
++
+     private ImmutableDictionary<string, ProviderSettings>? _providerSettings
+         = ImmutableDictionary<string, ProviderSettings>.Empty;
+ 
+diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI.ViewModels/SettingsViewModel.cs b/src/modules/cmdpal/Microsoft.CmdPal.UI.ViewModels/SettingsViewModel.cs
+index 2966366..5db56cb 100644
+--- a/src/modules/cmdpal/Microsoft.CmdPal.UI.ViewModels/SettingsViewModel.cs
++++ b/src/modules/cmdpal/Microsoft.CmdPal.UI.ViewModels/SettingsViewModel.cs
+@@ -375,6 +375,125 @@ public partial class SettingsViewModel : INotifyPropertyChanged,
+         }
+     }
+ 
++    // SpotPalette: Spotlight-style options (only used while CompactMode is on).
++    public double MaxSpotlightMaxVisibleResults => SettingsModel.MaxSpotlightMaxVisibleResults;
++
++    public double MinSpotlightSearchFontSize => SettingsModel.MinSpotlightSearchFontSize;
++
++    public double MaxSpotlightSearchFontSize => SettingsModel.MaxSpotlightSearchFontSize;
++
++    public double MinSpotlightSearchBarPadding => SettingsModel.MinSpotlightSearchBarPadding;
++
++    public double MaxSpotlightSearchBarPadding => SettingsModel.MaxSpotlightSearchBarPadding;
++
++    public double MaxSpotlightCornerRadius => SettingsModel.MaxSpotlightCornerRadius;
++
++    public double SpotlightMaxVisibleResults
++    {
++        get => _settingsService.Settings.SpotlightMaxVisibleResults;
++        set
++        {
++            if (double.IsNaN(value))
++            {
++                return;
++            }
++
++            var rows = (int)Math.Round(value, MidpointRounding.AwayFromZero);
++            _settingsService.UpdateSettings(s => s with { SpotlightMaxVisibleResults = rows });
++        }
++    }
++
++    public double SpotlightSearchFontSize
++    {
++        get => _settingsService.Settings.SpotlightSearchFontSize;
++        set
++        {
++            if (double.IsNaN(value))
++            {
++                return;
++            }
++
++            var size = (int)Math.Round(value, MidpointRounding.AwayFromZero);
++            _settingsService.UpdateSettings(s => s with { SpotlightSearchFontSize = size });
++        }
++    }
++
++    public double SpotlightSearchBarPadding
++    {
++        get => _settingsService.Settings.SpotlightSearchBarPadding;
++        set
++        {
++            if (double.IsNaN(value))
++            {
++                return;
++            }
++
++            var padding = (int)Math.Round(value, MidpointRounding.AwayFromZero);
++            _settingsService.UpdateSettings(s => s with { SpotlightSearchBarPadding = padding });
++        }
++    }
++
++    public double SpotlightCornerRadius
++    {
++        get => _settingsService.Settings.SpotlightCornerRadius;
++        set
++        {
++            if (double.IsNaN(value))
++            {
++                return;
++            }
++
++            var radius = (int)Math.Round(value, MidpointRounding.AwayFromZero);
++            _settingsService.UpdateSettings(s => s with { SpotlightCornerRadius = radius });
++        }
++    }
++
++    public bool SpotlightShowCommandBar
++    {
++        get => !_settingsService.Settings.SpotlightHideCommandBar;
++        set => _settingsService.UpdateSettings(s => s with { SpotlightHideCommandBar = !value });
++    }
++
++    public bool SpotlightShowLogo
++    {
++        get => !_settingsService.Settings.SpotlightHideLogo;
++        set => _settingsService.UpdateSettings(s => s with { SpotlightHideLogo = !value });
++    }
++
++    public bool SpotlightShowSectionHeaders
++    {
++        get => !_settingsService.Settings.SpotlightHideSectionHeaders;
++        set => _settingsService.UpdateSettings(s => s with { SpotlightHideSectionHeaders = !value });
++    }
++
++    public void ResetSpotlightStyle()
++    {
++        _settingsService.UpdateSettings(s => s with
++        {
++            SpotlightMaxVisibleResults = SettingsModel.DefaultSpotlightMaxVisibleResults,
++            SpotlightSearchFontSize = SettingsModel.DefaultSpotlightSearchFontSize,
++            SpotlightSearchBarPadding = SettingsModel.DefaultSpotlightSearchBarPadding,
++            SpotlightCornerRadius = SettingsModel.DefaultSpotlightCornerRadius,
++            SpotlightHideCommandBar = true,
++            SpotlightHideLogo = false,
++            SpotlightHideSectionHeaders = false,
++        });
++
++        foreach (var name in new[]
++        {
++            nameof(SpotlightMaxVisibleResults),
++            nameof(SpotlightSearchFontSize),
++            nameof(SpotlightSearchBarPadding),
++            nameof(SpotlightCornerRadius),
++            nameof(SpotlightShowCommandBar),
++            nameof(SpotlightShowLogo),
++            nameof(SpotlightShowSectionHeaders),
++        })
++        {
++            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
++        }
++    }
++
+     public bool IgnoreShortcutWhenFullscreen
+     {
+         get => _settingsService.Settings.IgnoreShortcutWhenFullscreen;
+diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI/Controls/SearchBar.xaml b/src/modules/cmdpal/Microsoft.CmdPal.UI/Controls/SearchBar.xaml
+index 709e65b..84d7fdd 100644
+--- a/src/modules/cmdpal/Microsoft.CmdPal.UI/Controls/SearchBar.xaml
++++ b/src/modules/cmdpal/Microsoft.CmdPal.UI/Controls/SearchBar.xaml
+@@ -96,6 +96,7 @@
+                 VerticalContentAlignment="Stretch"
+                 h:TextBoxCaretColor.SyncWithForeground="True"
+                 AutomationProperties.AutomationId="MainSearchBox"
++                FontSize="{x:Bind SearchFontSize, Mode=OneWay}"
+                 KeyDown="FilterBox_KeyDown"
+                 PlaceholderText="{x:Bind CurrentPageViewModel.PlaceholderText, Converter={StaticResource PlaceholderTextConverter}, Mode=OneWay}"
+                 PreviewKeyDown="FilterBox_PreviewKeyDown"
+diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI/Controls/SearchBar.xaml.cs b/src/modules/cmdpal/Microsoft.CmdPal.UI/Controls/SearchBar.xaml.cs
+index 6c8339b..13e20a9 100644
+--- a/src/modules/cmdpal/Microsoft.CmdPal.UI/Controls/SearchBar.xaml.cs
++++ b/src/modules/cmdpal/Microsoft.CmdPal.UI/Controls/SearchBar.xaml.cs
+@@ -70,6 +70,19 @@ public sealed partial class SearchBar : UserControl, INotifyPropertyChanged, ICu
+     public static readonly DependencyProperty CurrentPageViewModelProperty =
+         DependencyProperty.Register(nameof(CurrentPageViewModel), typeof(PageViewModel), typeof(SearchBar), new PropertyMetadata(null, OnCurrentPageViewModelChanged));
+ 
++    /// <summary>
++    /// Gets or sets the font size of the main search text box. The shell raises it in the
++    /// Spotlight-style compact layout (SpotPalette); the default matches the theme size.
++    /// </summary>
++    public double SearchFontSize
++    {
++        get => (double)GetValue(SearchFontSizeProperty);
++        set => SetValue(SearchFontSizeProperty, value);
++    }
++
++    public static readonly DependencyProperty SearchFontSizeProperty =
++        DependencyProperty.Register(nameof(SearchFontSize), typeof(double), typeof(SearchBar), new PropertyMetadata(14d));
++
+     // Called on each opening so the host can build commands from its current state.
+     public Func<IReadOnlyList<ICommandBarElement>>? AdditionalContextMenuItemsFactory { get; set; }
+ 
+diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI/Converters/ListItemContainerStyleSelector.cs b/src/modules/cmdpal/Microsoft.CmdPal.UI/Converters/ListItemContainerStyleSelector.cs
+index 269107e..c6df9e3 100644
+--- a/src/modules/cmdpal/Microsoft.CmdPal.UI/Converters/ListItemContainerStyleSelector.cs
++++ b/src/modules/cmdpal/Microsoft.CmdPal.UI/Converters/ListItemContainerStyleSelector.cs
+@@ -3,7 +3,9 @@
+ // See the LICENSE file in the project root for more information.
+ 
+ using Microsoft.CmdPal.UI.ViewModels;
++using Microsoft.CmdPal.UI.ViewModels.Services;
+ using Microsoft.CommandPalette.Extensions.Toolkit;
++using Microsoft.Extensions.DependencyInjection;
+ using Microsoft.UI.Xaml;
+ using Microsoft.UI.Xaml.Controls;
+ 
+@@ -17,6 +19,12 @@ internal sealed partial class ListItemContainerStyleSelector : StyleSelector
+ 
+     public Style? Separator { get; set; }
+ 
++    /// <summary>
++    /// Gets or sets the zero-height style used for section headers when the Spotlight-style
++    /// "hide section headers" option is on (SpotPalette).
++    /// </summary>
++    public Style? HiddenSection { get; set; }
++
+     protected override Style? SelectStyleCore(object item, DependencyObject container)
+     {
+         if (item is not ListItemViewModel element)
+@@ -29,10 +37,16 @@ internal sealed partial class ListItemContainerStyleSelector : StyleSelector
+             case ListItemType.Separator:
+                 return Separator;
+             case ListItemType.SectionHeader:
+-                return Section;
++                return HiddenSection is not null && ShouldHideSectionHeaders() ? HiddenSection : Section;
+             case ListItemType.Item:
+             default:
+                 return Default;
+         }
+     }
++
++    private static bool ShouldHideSectionHeaders()
++    {
++        var settings = App.Current.Services.GetService<ISettingsService>()?.Settings;
++        return settings is not null && settings.CompactMode && settings.SpotlightHideSectionHeaders;
++    }
+ }
+diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI/ExtViews/ListItemsView.xaml b/src/modules/cmdpal/Microsoft.CmdPal.UI/ExtViews/ListItemsView.xaml
+index 5ed3d0b..b8ac0cd 100644
+--- a/src/modules/cmdpal/Microsoft.CmdPal.UI/ExtViews/ListItemsView.xaml
++++ b/src/modules/cmdpal/Microsoft.CmdPal.UI/ExtViews/ListItemsView.xaml
+@@ -321,6 +321,17 @@
+             <Setter Property="Height" Value="{StaticResource ListViewSectionHeight}" />
+         </Style>
+ 
++        <!--  SpotPalette: section headers collapsed to zero height in the Spotlight-style layout  -->
++        <Style
++            x:Key="ListHiddenSectionContainerStyle"
++            BasedOn="{StaticResource ListSectionContainerStyle}"
++            TargetType="ListViewItem">
++            <Setter Property="Padding" Value="0" />
++            <Setter Property="MinHeight" Value="0" />
++            <Setter Property="Height" Value="0" />
++            <Setter Property="Opacity" Value="0" />
++        </Style>
++
+         <Style
+             x:Key="ListSeparatorContainerStyle"
+             BasedOn="{StaticResource DefaultListViewItemStyle}"
+@@ -363,6 +374,7 @@
+         <cmdpalUI:ListItemContainerStyleSelector
+             x:Key="ListItemContainerStyleSelector"
+             Default="{StaticResource ListSingleRowItemContainerStyle}"
++            HiddenSection="{StaticResource ListHiddenSectionContainerStyle}"
+             Section="{StaticResource ListSectionContainerStyle}"
+             Separator="{StaticResource ListSeparatorContainerStyle}" />
+ 
+diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI/MainWindow.xaml.cs b/src/modules/cmdpal/Microsoft.CmdPal.UI/MainWindow.xaml.cs
+index 1d6c99c..35465d7 100644
+--- a/src/modules/cmdpal/Microsoft.CmdPal.UI/MainWindow.xaml.cs
++++ b/src/modules/cmdpal/Microsoft.CmdPal.UI/MainWindow.xaml.cs
+@@ -118,6 +118,9 @@ public sealed partial class MainWindow : WindowEx,
+     // over the same band). These MUST match or the two disagree about where resizing is.
+     private const int ResizeBorderThicknessDip = 8;
+ 
++    // Upstream card corner radius (matches CmdPalMainControl's default).
++    private const double DefaultCardCornerRadius = 8;
++
+     private WindowPosition _currentWindowPosition = new();
+ 
+     private bool _preventHideWhenDeactivated;
+@@ -634,6 +637,7 @@ public sealed partial class MainWindow : WindowEx,
+                 && x.AutoGoHomeInterval == y.AutoGoHomeInterval
+                 && x.ShowHwndFrame == y.ShowHwndFrame
+                 && x.CompactMode == y.CompactMode
++                && x.SpotlightCornerRadius == y.SpotlightCornerRadius
+                 && x.Hotkey == y.Hotkey // HotkeySettings is a record (value equality)
+                 && x.DockFocusHotkey == y.DockFocusHotkey
+                 && x.EnableDock == y.EnableDock
+@@ -677,6 +681,7 @@ public sealed partial class MainWindow : WindowEx,
+             hash.Add(obj.AutoGoHomeInterval);
+             hash.Add(obj.ShowHwndFrame);
+             hash.Add(obj.CompactMode);
++            hash.Add(obj.SpotlightCornerRadius);
+             hash.Add(obj.Hotkey);
+             hash.Add(obj.DockFocusHotkey);
+             hash.Add(obj.EnableDock);
+@@ -2216,6 +2221,10 @@ public sealed partial class MainWindow : WindowEx,
+ 
+         var settings = App.Current.Services.GetRequiredService<ISettingsService>().Settings;
+ 
++        // SpotPalette: the Spotlight-style layout uses its own (usually rounder) card corners.
++        RootElement.CardCornerRadius = new CornerRadius(
++            settings.CompactMode ? settings.SpotlightCornerRadius : DefaultCardCornerRadius);
++
+         var preventCompactMode = _dialogFullExpandActive || !settings.CompactMode;
+         if (preventCompactMode)
+         {
+diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI/Pages/ShellPage.xaml b/src/modules/cmdpal/Microsoft.CmdPal.UI/Pages/ShellPage.xaml
+index 1af6b7a..35d08f8 100644
+--- a/src/modules/cmdpal/Microsoft.CmdPal.UI/Pages/ShellPage.xaml
++++ b/src/modules/cmdpal/Microsoft.CmdPal.UI/Pages/ShellPage.xaml
+@@ -77,7 +77,7 @@
+             <!--  Back button and search box  -->
+             <Grid
+                 x:Name="TopBarGrid"
+-                Padding="0,12,0,12"
++                Padding="{x:Bind TopBarPadding, Mode=OneWay}"
+                 HorizontalAlignment="Stretch"
+                 VerticalAlignment="Stretch"
+                 BorderBrush="{ThemeResource CmdPal.TopBarBorderBrush}"
+@@ -102,7 +102,7 @@
+                         ui:VisualExtensions.NormalizedCenterPoint="0.5,0.5"
+                         AutomationProperties.AccessibilityView="Raw"
+                         Source="ms-appx:///Assets/icon.svg"
+-                        Visibility="{x:Bind ViewModel.CurrentPage.IsRootPage, Mode=OneWay}">
++                        Visibility="{x:Bind RootLogoVisibility(ViewModel.CurrentPage.IsRootPage, SpotlightShowLogo), Mode=OneWay}">
+                         <animations:Implicit.ShowAnimations>
+                             <animations:OpacityAnimation
+                                 EasingMode="EaseIn"
+@@ -231,7 +231,8 @@
+                         x:Name="SearchBox"
+                         HorizontalAlignment="Stretch"
+                         ActiveFocusTargetChanged="SearchBox_ActiveFocusTargetChanged"
+-                        CurrentPageViewModel="{x:Bind ViewModel.CurrentPage, Mode=OneWay}" />
++                        CurrentPageViewModel="{x:Bind ViewModel.CurrentPage, Mode=OneWay}"
++                        SearchFontSize="{x:Bind SearchFontSize, Mode=OneWay}" />
+                     <Grid.Transitions>
+                         <TransitionCollection>
+                             <RepositionThemeTransition />
+@@ -478,7 +479,11 @@
+                 <RowDefinition Height="Auto" />
+             </Grid.RowDefinitions>
+ 
+-            <Grid x:Name="ContentGrid" Grid.Row="1">
++            <!--  SpotPalette: MaxHeight limits the visible result rows in the Spotlight-style layout  -->
++            <Grid
++                x:Name="ContentGrid"
++                Grid.Row="1"
++                MaxHeight="{x:Bind ResultsMaxHeight, Mode=OneWay}">
+ 
+                 <Grid.ColumnDefinitions>
+                     <ColumnDefinition Width="{x:Bind ViewModel.Details.Size, Mode=OneWay, Converter={StaticResource SizeToWidthConverter}}" />
+@@ -595,7 +600,12 @@
+             Background="{ThemeResource LayerOnAcrylicSecondaryBackgroundBrush}"
+             BorderBrush="{ThemeResource CmdPal.DividerStrokeColorDefaultBrush}"
+             BorderThickness="0,1,0,0"
++            MaxHeight="{x:Bind CommandBarMaxHeight, Mode=OneWay}"
+             Visibility="{x:Bind ExpandedMode, Mode=OneWay}">
++            <!--
++                SpotPalette: the Spotlight-style layout hides the footer with MaxHeight=0 rather
++                than Collapsed, so the bar stays in the tree as the anchor for the context menu.
++            -->
+             <cpcontrols:CommandBar
+                 x:Name="MainCommandBar"
+                 CurrentPageViewModel="{x:Bind ViewModel.CurrentPage, Mode=OneWay}" />
+diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI/Pages/ShellPage.xaml.cs b/src/modules/cmdpal/Microsoft.CmdPal.UI/Pages/ShellPage.xaml.cs
+index b5121df..0d4070b 100644
+--- a/src/modules/cmdpal/Microsoft.CmdPal.UI/Pages/ShellPage.xaml.cs
++++ b/src/modules/cmdpal/Microsoft.CmdPal.UI/Pages/ShellPage.xaml.cs
+@@ -70,6 +70,17 @@ public sealed partial class ShellPage : Microsoft.UI.Xaml.Controls.Page,
+     private const string QuickAccessShelfDragProperty = "Microsoft.CmdPal.UI.QuickAccessShelfItem";
+     private const string QuickAccessShelfDropIndicatorTag = "QuickAccessShelfDropIndicator";
+ 
++    // SpotPalette: upstream search bar metrics, restored whenever compact mode is off.
++    private const double DefaultSearchFontSize = 14;
++
++    // Must match SingleRowListViewItemHeight in ListItemsView.xaml.
++    private const double SpotlightResultRowHeight = 44;
++
++    // Small allowance for the list's own top/bottom padding so the last row is not clipped.
++    private const double SpotlightResultsListPadding = 8;
++
++    private static readonly Thickness DefaultTopBarPadding = new(0, 12, 0, 12);
++
+     private readonly DispatcherQueue _queue = DispatcherQueue.GetForCurrentThread();
+ 
+     private readonly ItemActionController _itemActions;
+@@ -181,6 +192,19 @@ public sealed partial class ShellPage : Microsoft.UI.Xaml.Controls.Page,
+         (ViewModel.CurrentPage?.IsRootPage ?? false) &&
+         QuickAccessShelf.HasItems;
+ 
++    // SpotPalette: values for the Spotlight-style compact layout. They are recomputed by
++    // ApplySpotlightLayout whenever settings, navigation or the expanded state change, and
++    // fall back to the upstream look whenever compact mode is off.
++    public double SearchFontSize { get; private set; } = DefaultSearchFontSize;
++
++    public Thickness TopBarPadding { get; private set; } = DefaultTopBarPadding;
++
++    public double ResultsMaxHeight { get; private set; } = double.PositiveInfinity;
++
++    public double CommandBarMaxHeight { get; private set; } = double.PositiveInfinity;
++
++    public bool SpotlightShowLogo { get; private set; } = true;
++
+     // Item keybindings act on the selected item, which is hidden while collapsed — only honor them when expanded.
+     private bool ItemActionsAllowed => !_compactMode || ExpandedMode;
+ 
+@@ -234,6 +258,7 @@ public sealed partial class ShellPage : Microsoft.UI.Xaml.Controls.Page,
+         QuickAccessShelf.PropertyChanged += QuickAccessShelf_PropertyChanged;
+         QuickAccessShelf.RebuildCompleted += QuickAccessShelf_RebuildCompleted;
+ 
++        ApplySpotlightLayout(notify: false);
+         this.InitializeComponent();
+         _pageInteractions = new(MainCommandBar);
+         _pageInteractions.DetailsChanged += PageInteractions_DetailsChanged;
+@@ -2332,6 +2357,9 @@ public sealed partial class ShellPage : Microsoft.UI.Xaml.Controls.Page,
+                 pinnedCommandLimit,
+                 recentCommandLimit);
+ 
++            // Spotlight-style options are cheap to re-apply, so do it on every change.
++            ApplySpotlightLayout(notify: true);
++
+             var compactModeChanged = compactMode != _compactMode;
+             var quickAccessShelfChanged = quickAccessShelfEnabled != _quickAccessShelfEnabled;
+             if (!compactModeChanged && !quickAccessShelfChanged)
+@@ -2426,8 +2454,55 @@ public sealed partial class ShellPage : Microsoft.UI.Xaml.Controls.Page,
+         this.ExpandedMode = newExpanded;
+         PropertyChanged?.Invoke(this, new(nameof(ExpandedMode)));
+         NotifyQuickAccessShelfVisibilityChanged();
++
++        // Every navigation funnels through here (via UpdateCompactModeForCurrentPage), so this
++        // also keeps the result-row limit in sync with the kind of page being shown.
++        ApplySpotlightLayout(notify: true);
+     }
+ 
++    /// <summary>
++    /// Recomputes the Spotlight-style layout values (SpotPalette) from the current settings
++    /// and page. When compact mode is off every value falls back to the upstream design.
++    /// </summary>
++    private void ApplySpotlightLayout(bool notify)
++    {
++        var settings = _settingsService.Settings;
++        var spotlight = settings.CompactMode;
++
++        SearchFontSize = spotlight ? settings.SpotlightSearchFontSize : DefaultSearchFontSize;
++        TopBarPadding = spotlight
++            ? new Thickness(0, settings.SpotlightSearchBarPadding, 0, settings.SpotlightSearchBarPadding)
++            : DefaultTopBarPadding;
++        SpotlightShowLogo = !spotlight || !settings.SpotlightHideLogo;
++        CommandBarMaxHeight = spotlight && settings.SpotlightHideCommandBar ? 0 : double.PositiveInfinity;
++
++        // The row limit only makes sense for list pages; content pages (forms, markdown, ...)
++        // keep using all the space they can get.
++        var rows = settings.SpotlightMaxVisibleResults;
++        var isListPage = ViewModel.CurrentPage is ListViewModel;
++        ResultsMaxHeight = spotlight && rows > 0 && isListPage
++            ? (rows * SpotlightResultRowHeight) + SpotlightResultsListPadding
++            : double.PositiveInfinity;
++
++        if (!notify)
++        {
++            return;
++        }
++
++        PropertyChanged?.Invoke(this, new(nameof(SearchFontSize)));
++        PropertyChanged?.Invoke(this, new(nameof(TopBarPadding)));
++        PropertyChanged?.Invoke(this, new(nameof(SpotlightShowLogo)));
++        PropertyChanged?.Invoke(this, new(nameof(CommandBarMaxHeight)));
++        PropertyChanged?.Invoke(this, new(nameof(ResultsMaxHeight)));
++    }
++
++    /// <summary>
++    /// x:Bind helper: the app logo is shown on the root page unless the Spotlight-style
++    /// layout hides it.
++    /// </summary>
++    public Visibility RootLogoVisibility(bool isRootPage, bool showLogo) =>
++        isRootPage && showLogo ? Visibility.Visible : Visibility.Collapsed;
++
+     /// <summary>
+     /// Expands a collapsed compact palette on demand (via Down/Alt+Down/Tab) so the user can browse the
+     /// top-level items. Returns <see langword="false"/> and does nothing unless compact mode is
+diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI/Settings/AppearancePage.xaml b/src/modules/cmdpal/Microsoft.CmdPal.UI/Settings/AppearancePage.xaml
+index e04302d..1c4199e 100644
+--- a/src/modules/cmdpal/Microsoft.CmdPal.UI/Settings/AppearancePage.xaml
++++ b/src/modules/cmdpal/Microsoft.CmdPal.UI/Settings/AppearancePage.xaml
+@@ -627,6 +627,70 @@
+                             Click="OpenCompactPositionPicker_Click" />
+                     </controls:SettingsCard>
+ 
++                    <!--  SpotPalette: extra customization for the Spotlight-style (compact) design  -->
++                    <controls:SettingsExpander
++                        x:Name="SpotlightStyleSettingsExpander"
++                        x:Uid="Settings_SpotlightStyle_SettingsExpander"
++                        HeaderIcon="{ui:FontIcon Glyph=&#xE771;}"
++                        IsEnabled="{x:Bind ViewModel.CompactMode, Mode=OneWay}"
++                        IsExpanded="{x:Bind ViewModel.CompactMode, Mode=OneWay}">
++                        <Button
++                            x:Uid="Settings_SpotlightStyle_ResetButton"
++                            AutomationProperties.AutomationId="CmdPal_SpotlightStyle_Reset"
++                            Click="ResetSpotlightStyle_Click" />
++                        <controls:SettingsExpander.Items>
++                            <controls:SettingsCard x:Uid="Settings_SpotlightStyle_MaxVisibleResults_SettingsCard">
++                                <NumberBox
++                                    MinWidth="{StaticResource SettingActionControlMinWidth}"
++                                    AutomationProperties.AutomationId="CmdPal_SpotlightStyle_MaxVisibleResults"
++                                    Maximum="{x:Bind ViewModel.MaxSpotlightMaxVisibleResults}"
++                                    Minimum="0"
++                                    SmallChange="1"
++                                    SpinButtonPlacementMode="Compact"
++                                    Value="{x:Bind ViewModel.SpotlightMaxVisibleResults, Mode=TwoWay}" />
++                            </controls:SettingsCard>
++                            <controls:SettingsCard x:Uid="Settings_SpotlightStyle_SearchFontSize_SettingsCard">
++                                <Slider
++                                    MinWidth="{StaticResource SettingActionControlMinWidth}"
++                                    AutomationProperties.AutomationId="CmdPal_SpotlightStyle_SearchFontSize"
++                                    Maximum="{x:Bind ViewModel.MaxSpotlightSearchFontSize}"
++                                    Minimum="{x:Bind ViewModel.MinSpotlightSearchFontSize}"
++                                    SmallChange="1"
++                                    StepFrequency="1"
++                                    Value="{x:Bind ViewModel.SpotlightSearchFontSize, Mode=TwoWay}" />
++                            </controls:SettingsCard>
++                            <controls:SettingsCard x:Uid="Settings_SpotlightStyle_SearchBarPadding_SettingsCard">
++                                <Slider
++                                    MinWidth="{StaticResource SettingActionControlMinWidth}"
++                                    AutomationProperties.AutomationId="CmdPal_SpotlightStyle_SearchBarPadding"
++                                    Maximum="{x:Bind ViewModel.MaxSpotlightSearchBarPadding}"
++                                    Minimum="{x:Bind ViewModel.MinSpotlightSearchBarPadding}"
++                                    SmallChange="1"
++                                    StepFrequency="1"
++                                    Value="{x:Bind ViewModel.SpotlightSearchBarPadding, Mode=TwoWay}" />
++                            </controls:SettingsCard>
++                            <controls:SettingsCard x:Uid="Settings_SpotlightStyle_CornerRadius_SettingsCard">
++                                <Slider
++                                    MinWidth="{StaticResource SettingActionControlMinWidth}"
++                                    AutomationProperties.AutomationId="CmdPal_SpotlightStyle_CornerRadius"
++                                    Maximum="{x:Bind ViewModel.MaxSpotlightCornerRadius}"
++                                    Minimum="0"
++                                    SmallChange="1"
++                                    StepFrequency="1"
++                                    Value="{x:Bind ViewModel.SpotlightCornerRadius, Mode=TwoWay}" />
++                            </controls:SettingsCard>
++                            <controls:SettingsCard x:Uid="Settings_SpotlightStyle_ShowLogo_SettingsCard">
++                                <ToggleSwitch AutomationProperties.AutomationId="CmdPal_SpotlightStyle_ShowLogo" IsOn="{x:Bind ViewModel.SpotlightShowLogo, Mode=TwoWay}" />
++                            </controls:SettingsCard>
++                            <controls:SettingsCard x:Uid="Settings_SpotlightStyle_ShowSectionHeaders_SettingsCard">
++                                <ToggleSwitch AutomationProperties.AutomationId="CmdPal_SpotlightStyle_ShowSectionHeaders" IsOn="{x:Bind ViewModel.SpotlightShowSectionHeaders, Mode=TwoWay}" />
++                            </controls:SettingsCard>
++                            <controls:SettingsCard x:Uid="Settings_SpotlightStyle_ShowCommandBar_SettingsCard">
++                                <ToggleSwitch AutomationProperties.AutomationId="CmdPal_SpotlightStyle_ShowCommandBar" IsOn="{x:Bind ViewModel.SpotlightShowCommandBar, Mode=TwoWay}" />
++                            </controls:SettingsCard>
++                        </controls:SettingsExpander.Items>
++                    </controls:SettingsExpander>
++
+                     <controls:SettingsExpander
+                         x:Name="QuickAccessShelfSettingsExpander"
+                         x:Uid="Settings_GeneralPage_QuickAccessShelf_SettingsCard"
+diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI/Settings/AppearancePage.xaml.cs b/src/modules/cmdpal/Microsoft.CmdPal.UI/Settings/AppearancePage.xaml.cs
+index 9c49e3f..e4fe3f4 100644
+--- a/src/modules/cmdpal/Microsoft.CmdPal.UI/Settings/AppearancePage.xaml.cs
++++ b/src/modules/cmdpal/Microsoft.CmdPal.UI/Settings/AppearancePage.xaml.cs
+@@ -54,6 +54,11 @@ public sealed partial class AppearancePage : Page, IDisposable
+         _compactPositionPickerWindow = null;
+     }
+ 
++    private void ResetSpotlightStyle_Click(object sender, RoutedEventArgs e)
++    {
++        ViewModel.ResetSpotlightStyle();
++    }
++
+     private void OpenRecentItemsSettings_Click(object sender, RoutedEventArgs e)
+     {
+         WeakReferenceMessenger.Default.Send(new OpenSettingsMessage(
+diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI/Strings/en-us/Resources.resw b/src/modules/cmdpal/Microsoft.CmdPal.UI/Strings/en-us/Resources.resw
+index 4b63d99..587b3d1 100644
+--- a/src/modules/cmdpal/Microsoft.CmdPal.UI/Strings/en-us/Resources.resw
++++ b/src/modules/cmdpal/Microsoft.CmdPal.UI/Strings/en-us/Resources.resw
+@@ -417,16 +417,67 @@ Right-click to remove the key combination, thereby deactivating the shortcut.</v
+     <value>How Command Palette opens</value>
+   </data>
+   <data name="Settings_GeneralPage_CommandPaletteOpening_FullPalette.Text" xml:space="preserve">
+-    <value>Full palette</value>
++    <value>Official (full palette)</value>
+   </data>
+   <data name="Settings_GeneralPage_CommandPaletteOpening_CompactSearchBox.Text" xml:space="preserve">
+-    <value>Compact search box</value>
++    <value>Spotlight search bar</value>
+   </data>
+   <data name="Settings_GeneralPage_CommandPaletteOpening_FullPalette_Automation.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+-    <value>Full palette</value>
++    <value>Official (full palette)</value>
+   </data>
+   <data name="Settings_GeneralPage_CommandPaletteOpening_CompactSearchBox_Automation.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+-    <value>Compact search box</value>
++    <value>Spotlight search bar</value>
++  </data>
++  <data name="Settings_SpotlightStyle_SettingsExpander.Header" xml:space="preserve">
++    <value>Spotlight search bar style</value>
++  </data>
++  <data name="Settings_SpotlightStyle_SettingsExpander.Description" xml:space="preserve">
++    <value>Customize how the search bar looks and expands. Available when "Spotlight search bar" is selected above</value>
++  </data>
++  <data name="Settings_SpotlightStyle_ResetButton.Content" xml:space="preserve">
++    <value>Reset to defaults</value>
++  </data>
++  <data name="Settings_SpotlightStyle_MaxVisibleResults_SettingsCard.Header" xml:space="preserve">
++    <value>Visible result rows</value>
++  </data>
++  <data name="Settings_SpotlightStyle_MaxVisibleResults_SettingsCard.Description" xml:space="preserve">
++    <value>How many rows to show before the results scroll. 0 grows the list to the bottom of the screen</value>
++  </data>
++  <data name="Settings_SpotlightStyle_SearchFontSize_SettingsCard.Header" xml:space="preserve">
++    <value>Search text size</value>
++  </data>
++  <data name="Settings_SpotlightStyle_SearchFontSize_SettingsCard.Description" xml:space="preserve">
++    <value>Font size of the text you type in the search bar</value>
++  </data>
++  <data name="Settings_SpotlightStyle_SearchBarPadding_SettingsCard.Header" xml:space="preserve">
++    <value>Search bar height</value>
++  </data>
++  <data name="Settings_SpotlightStyle_SearchBarPadding_SettingsCard.Description" xml:space="preserve">
++    <value>Space above and below the search text</value>
++  </data>
++  <data name="Settings_SpotlightStyle_CornerRadius_SettingsCard.Header" xml:space="preserve">
++    <value>Corner roundness</value>
++  </data>
++  <data name="Settings_SpotlightStyle_CornerRadius_SettingsCard.Description" xml:space="preserve">
++    <value>Corner radius of the search bar and results card</value>
++  </data>
++  <data name="Settings_SpotlightStyle_ShowLogo_SettingsCard.Header" xml:space="preserve">
++    <value>Show Command Palette icon</value>
++  </data>
++  <data name="Settings_SpotlightStyle_ShowLogo_SettingsCard.Description" xml:space="preserve">
++    <value>Show the app icon at the start of the search bar</value>
++  </data>
++  <data name="Settings_SpotlightStyle_ShowSectionHeaders_SettingsCard.Header" xml:space="preserve">
++    <value>Show section headers</value>
++  </data>
++  <data name="Settings_SpotlightStyle_ShowSectionHeaders_SettingsCard.Description" xml:space="preserve">
++    <value>Show group titles such as "Pinned" and "Commands" in the results. Takes effect the next time the results are shown</value>
++  </data>
++  <data name="Settings_SpotlightStyle_ShowCommandBar_SettingsCard.Header" xml:space="preserve">
++    <value>Show command bar</value>
++  </data>
++  <data name="Settings_SpotlightStyle_ShowCommandBar_SettingsCard.Description" xml:space="preserve">
++    <value>Show the bottom bar with Settings and the available actions (Run, More...). Keyboard shortcuts keep working when it is hidden</value>
+   </data>
+   <data name="Settings_GeneralPage_QuickAccessShelf_SettingsCard.Header" xml:space="preserve">
+     <value>Quick access shelf</value>
+diff --git a/src/modules/cmdpal/Tests/Microsoft.CmdPal.UI.ViewModels.UnitTests/SettingsServiceTests.cs b/src/modules/cmdpal/Tests/Microsoft.CmdPal.UI.ViewModels.UnitTests/SettingsServiceTests.cs
+index 5e18b4e..07834c6 100644
+--- a/src/modules/cmdpal/Tests/Microsoft.CmdPal.UI.ViewModels.UnitTests/SettingsServiceTests.cs
++++ b/src/modules/cmdpal/Tests/Microsoft.CmdPal.UI.ViewModels.UnitTests/SettingsServiceTests.cs
+@@ -179,6 +179,68 @@ public class SettingsServiceTests
+         Assert.AreEqual(7, settings.RecentCommandsDisplayLimit);
+     }
+ 
++    [TestMethod]
++    public void SpotlightStyle_DefaultsWhenSettingsAreOmitted()
++    {
++        var settings = System.Text.Json.JsonSerializer.Deserialize(
++            "{}",
++            JsonSerializationContext.Default.SettingsModel);
++
++        Assert.IsNotNull(settings);
++        Assert.AreEqual(SettingsModel.DefaultSpotlightMaxVisibleResults, settings.SpotlightMaxVisibleResults);
++        Assert.AreEqual(SettingsModel.DefaultSpotlightSearchFontSize, settings.SpotlightSearchFontSize);
++        Assert.AreEqual(SettingsModel.DefaultSpotlightSearchBarPadding, settings.SpotlightSearchBarPadding);
++        Assert.AreEqual(SettingsModel.DefaultSpotlightCornerRadius, settings.SpotlightCornerRadius);
++        Assert.IsTrue(settings.SpotlightHideCommandBar);
++        Assert.IsFalse(settings.SpotlightHideLogo);
++        Assert.IsFalse(settings.SpotlightHideSectionHeaders);
++    }
++
++    [TestMethod]
++    public void SpotlightStyle_ExplicitValuesRoundTrip()
++    {
++        var source = CreateMinimalSettingsModel() with
++        {
++            SpotlightMaxVisibleResults = 5,
++            SpotlightSearchFontSize = 28,
++            SpotlightSearchBarPadding = 20,
++            SpotlightCornerRadius = 0,
++            SpotlightHideCommandBar = false,
++            SpotlightHideLogo = true,
++            SpotlightHideSectionHeaders = true,
++        };
++
++        var json = System.Text.Json.JsonSerializer.Serialize(source, JsonSerializationContext.Default.SettingsModel);
++        var settings = System.Text.Json.JsonSerializer.Deserialize(json, JsonSerializationContext.Default.SettingsModel);
++
++        Assert.IsNotNull(settings);
++        Assert.AreEqual(5, settings.SpotlightMaxVisibleResults);
++        Assert.AreEqual(28, settings.SpotlightSearchFontSize);
++        Assert.AreEqual(20, settings.SpotlightSearchBarPadding);
++        Assert.AreEqual(0, settings.SpotlightCornerRadius);
++        Assert.IsFalse(settings.SpotlightHideCommandBar);
++        Assert.IsTrue(settings.SpotlightHideLogo);
++        Assert.IsTrue(settings.SpotlightHideSectionHeaders);
++    }
++
++    [DataTestMethod]
++    [DataRow(-5, 0, 12, 0)]
++    [DataRow(999, 20, 36, 32)]
++    public void SpotlightStyle_OutOfRangePersistedValuesAreClamped(
++        int persisted,
++        int expectedRows,
++        int expectedFontSize,
++        int expectedCornerRadius)
++    {
++        var json = $"{{\"SpotlightMaxVisibleResults\":{persisted},\"SpotlightSearchFontSize\":{persisted},\"SpotlightCornerRadius\":{persisted}}}";
++        var settings = System.Text.Json.JsonSerializer.Deserialize(json, JsonSerializationContext.Default.SettingsModel);
++
++        Assert.IsNotNull(settings);
++        Assert.AreEqual(expectedRows, settings.SpotlightMaxVisibleResults);
++        Assert.AreEqual(expectedFontSize, settings.SpotlightSearchFontSize);
++        Assert.AreEqual(expectedCornerRadius, settings.SpotlightCornerRadius);
++    }
++
+     [TestMethod]
+     public void ListItemAltNumberBehavior_DefaultsToRunAndRoundTripsSelect()
+     {
+-- 
+2.43.0
+
