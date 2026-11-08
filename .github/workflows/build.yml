@@ -67,6 +67,23 @@ jobs:
           path: ~/.nuget/packages
           key: nuget-${{ hashFiles('UPSTREAM_COMMIT') }}
 
+      - name: Setup NuGet
+        uses: nuget/setup-nuget@v2
+
+      - name: Restore packages.config (C++ projects)
+        shell: pwsh
+        working-directory: PowerToys
+        run: |
+          # The C++ projects use packages.config, which `msbuild -restore` does not cover for
+          # every transitively referenced project. Restore them all into PowerToys\packages.
+          $configs = Get-ChildItem src -Recurse -Filter packages.config |
+            Where-Object { $_.FullName -match '\\src\\(common|modules\\cmdpal)\\' }
+          foreach ($config in $configs) {
+            nuget restore $config.FullName -PackagesDirectory packages -ConfigFile nuget.config -NonInteractive -Verbosity quiet
+            if ($LASTEXITCODE -ne 0) { throw "nuget restore failed for $($config.FullName)" }
+          }
+          Write-Host "Restored $($configs.Count) packages.config files."
+
       - name: Build Command Palette
         shell: pwsh
         working-directory: PowerToys
