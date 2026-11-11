@@ -53,8 +53,12 @@ jobs:
           $xml = Get-Content $manifest -Raw
           $xml = $xml -replace 'Publisher="CN=Microsoft Corporation[^"]*"', "Publisher=`"$env:PUBLISHER`""
           $xml = $xml -replace '<PublisherDisplayName>[^<]*</PublisherDisplayName>', '<PublisherDisplayName>SpotPalette</PublisherDisplayName>'
+
+          # Windows refuses to install a package whose version equals the installed one but
+          # whose contents differ, so every build gets a higher version: 1.0.<run number>.0.
+          $xml = $xml -replace '(<Identity[^>]*?\sVersion=")[^"]*(")', "`${1}1.0.$env:GITHUB_RUN_NUMBER.0`${2}"
           Set-Content -Path $manifest -Value $xml -NoNewline
-          Select-String -Path $manifest -Pattern 'Publisher' | ForEach-Object { $_.Line.Trim() }
+          Select-String -Path $manifest -Pattern 'Publisher|Version="' | ForEach-Object { $_.Line.Trim() }
 
       - name: Setup .NET (version from PowerToys global.json)
         uses: actions/setup-dotnet@v4
