@@ -29,9 +29,20 @@ try {
     Write-Host 'Installing SpotPalette...'
     Add-AppxPackage -Path $msix -ForceUpdateFromAnyVersion -ForceApplicationShutdown
 
+    # Start it once now: Windows only activates the "start with Windows" task after the
+    # app has been launched by the user at least once.
+    $package = Get-AppxPackage -Name 'Microsoft.CommandPalette.Dev' |
+        Where-Object { $_.Publisher -eq 'CN=SpotPalette' } | Select-Object -First 1
+    if ($package) {
+        $appId = (Get-AppxPackageManifest $package).Package.Applications.Application.Id
+        Start-Process "shell:AppsFolder\$($package.PackageFamilyName)!$appId"
+    }
+
     Write-Host ''
-    Write-Host 'Installed. Open "Command Palette (Dev)" from the Start menu.' -ForegroundColor Green
-    Write-Host 'Then: Settings > Appearance > How Command Palette opens > Spotlight search bar.'
+    Write-Host 'Installed and started. It will also start automatically when Windows starts.' -ForegroundColor Green
+    Write-Host 'Open it with its shortcut, or "Command Palette (Dev)" in the Start menu.'
+    Write-Host 'Settings > Appearance > How Command Palette opens > Spotlight search bar.'
+    Write-Host 'To stop it starting with Windows: Settings > Apps > Startup.'
     Write-Host 'If the official Command Palette is also installed, change the shortcut of one of them.'
 }
 catch {

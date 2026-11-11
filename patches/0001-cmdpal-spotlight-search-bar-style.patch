@@ -1,4 +1,4 @@
-From b929911988ceebd35305c786a135d76ac3eca346 Mon Sep 17 00:00:00 2001
+From a02af8257192b0ace80b7a995ba64b0b4468dea5 Mon Sep 17 00:00:00 2001
 From: SpotPalette <spotpalette@users.noreply.github.com>
 Date: Sat, 7 Nov 2026 15:00:18 +0000
 Subject: [PATCH] CmdPal: Spotlight-style search bar customization
@@ -8,6 +8,9 @@ typing) and adds a 'Spotlight search bar style' group to Settings >
 Appearance: visible result rows, search text size, search bar height,
 corner roundness, and toggles for the app icon, section headers and the
 bottom command bar. The official full palette is unaffected.
+
+Also: SpotPaletteRelease=true builds behave like official builds (no dev
+ribbon or internal tools), and the Dev package starts with Windows.
 ---
  .../SettingsModel.cs                          |  63 ++++++++++
  .../SettingsViewModel.cs                      | 119 ++++++++++++++++++
@@ -16,13 +19,15 @@ bottom command bar. The official full palette is unaffected.
  .../ListItemContainerStyleSelector.cs         |  16 ++-
  .../ExtViews/ListItemsView.xaml               |  12 ++
  .../Microsoft.CmdPal.UI/MainWindow.xaml.cs    |   9 ++
+ .../Microsoft.CmdPal.UI.csproj                |   7 ++
+ .../Package-Dev.appxmanifest                  |   2 +-
  .../Microsoft.CmdPal.UI/Pages/ShellPage.xaml  |  18 ++-
  .../Pages/ShellPage.xaml.cs                   |  75 +++++++++++
  .../Settings/AppearancePage.xaml              |  64 ++++++++++
  .../Settings/AppearancePage.xaml.cs           |   5 +
  .../Strings/en-us/Resources.resw              |  59 ++++++++-
  .../SettingsServiceTests.cs                   |  62 +++++++++
- 13 files changed, 507 insertions(+), 9 deletions(-)
+ 15 files changed, 515 insertions(+), 10 deletions(-)
 
 diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI.ViewModels/SettingsModel.cs b/src/modules/cmdpal/Microsoft.CmdPal.UI.ViewModels/SettingsModel.cs
 index 5798c9c..ea7bfc8 100644
@@ -380,6 +385,36 @@ index 1d6c99c..35465d7 100644
          var preventCompactMode = _dialogFullExpandActive || !settings.CompactMode;
          if (preventCompactMode)
          {
+diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI/Microsoft.CmdPal.UI.csproj b/src/modules/cmdpal/Microsoft.CmdPal.UI/Microsoft.CmdPal.UI.csproj
+index 0f2c896..3944694 100644
+--- a/src/modules/cmdpal/Microsoft.CmdPal.UI/Microsoft.CmdPal.UI.csproj
++++ b/src/modules/cmdpal/Microsoft.CmdPal.UI/Microsoft.CmdPal.UI.csproj
+@@ -341,5 +341,12 @@
+   <PropertyGroup Condition=" '$(CIBuild)' == 'true' ">
+     <DefineConstants>$(DefineConstants);BUILD_INFO_CIBUILD</DefineConstants>
+   </PropertyGroup>
++  <!--
++    SpotPalette: end-user builds keep the separate Dev package identity but behave like an
++    official build (no dev ribbon, no "Internal Tools" page, no pseudo-locales).
++  -->
++  <PropertyGroup Condition=" '$(SpotPaletteRelease)' == 'true' ">
++    <DefineConstants>$(DefineConstants);BUILD_INFO_CIBUILD</DefineConstants>
++  </PropertyGroup>
+ 
+ </Project>
+diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI/Package-Dev.appxmanifest b/src/modules/cmdpal/Microsoft.CmdPal.UI/Package-Dev.appxmanifest
+index ea6b910..a0500b4 100644
+--- a/src/modules/cmdpal/Microsoft.CmdPal.UI/Package-Dev.appxmanifest
++++ b/src/modules/cmdpal/Microsoft.CmdPal.UI/Package-Dev.appxmanifest
+@@ -66,7 +66,7 @@
+         <uap5:Extension Category="windows.startupTask">
+           <uap5:StartupTask
+             TaskId="CmdPalStartup"
+-            Enabled="false"
++            Enabled="true"
+             DisplayName="ms-resource:StartupTaskNameDev" />
+         </uap5:Extension>
+ 
 diff --git a/src/modules/cmdpal/Microsoft.CmdPal.UI/Pages/ShellPage.xaml b/src/modules/cmdpal/Microsoft.CmdPal.UI/Pages/ShellPage.xaml
 index 1af6b7a..35d08f8 100644
 --- a/src/modules/cmdpal/Microsoft.CmdPal.UI/Pages/ShellPage.xaml

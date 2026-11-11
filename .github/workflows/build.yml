@@ -101,6 +101,7 @@ jobs:
             -p:GeneratePackageLocally=true `
             -p:AppxPackageSigningEnabled=false `
             -p:CommandPaletteBranding=Dev `
+            -p:SpotPaletteRelease=true `
             -bl:"$env:GITHUB_WORKSPACE\msbuild.binlog"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
